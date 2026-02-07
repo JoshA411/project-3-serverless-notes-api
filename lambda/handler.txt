@@ -1,0 +1,56 @@
+import json
+import uuid
+from datetime import datetime
+import boto3
+import os
+
+dynamodb = boto3.resource("dynamodb")
+TABLE_NAME = os.environ.get("TABLE_NAME", "NotesTable")
+table = dynamodb.Table(TABLE_NAME)
+
+
+def build_response(status_code, body):
+    return {
+        "statusCode": status_code,
+        "headers": {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*"
+        },
+        "body": json.dumps(body)
+    }
+
+
+def lambda_handler(event, context):
+    http_method = event.get("httpMethod")
+    path = event.get("path", "")
+
+    # POST /notes
+    if http_method == "POST" and path.endswith("/notes"):
+        try:
+            body = json.loads(event.get("body") or "{}")
+            content = body.get("content")
+
+            if not content:
+                return build_response(400, {"message": "Missing 'content' field"})
+
+            item = {
+                "noteId": str(uuid.uuid4()),
+                "content": content,
+                "createdAt": datetime.utcnow().isoformat()
+            }
+
+            table.put_item(Item=item)
+            return build_response(201, item)
+
+        except Exception as e:
+            return build_response(500, {"error": str(e)})
+
+    # GET /notes
+    if http_method == "GET" and path.endswith("/notes"):
+        try:
+            response = table.scan()
+            return build_response(200, response.get("Items", []))
+        except Exception as e:
+            return build_response(500, {"error": str(e)})
+
+    return build_response(404, {"message": "Not found"})
